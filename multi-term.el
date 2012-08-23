@@ -364,11 +364,11 @@ Default is nil."
   "The buffer name of dedicated `multi-term'.")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Variable ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defvar multi-term-dedicated-window nil
-  "The dedicated `multi-term' window.")
+;(defvar multi-term-dedicated-window nil
+;  "The dedicated `multi-term' window.")
 
-(defvar multi-term-dedicated-buffer nil
-  "The dedicated `multi-term' buffer.")
+;(defvar multi-term-dedicated-buffer nil
+;  "The dedicated `multi-term' buffer.")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Interactive Functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;###autoload
@@ -403,11 +403,11 @@ Will prompt you shell name when you type `C-u' before this command."
   (interactive)
   (if (not (multi-term-dedicated-exist-p))
       (let ((current-window (selected-window)))
-        (if (multi-term-buffer-exist-p multi-term-dedicated-buffer)
-            (unless (multi-term-window-exist-p multi-term-dedicated-window)
+        (if (multi-term-buffer-exist-p (multi-term-dedicated-get-frame-buffer))
+            (unless (multi-term-window-exist-p (multi-term-dedicated-get-frame-window))
               (multi-term-dedicated-get-window))
           ;; Set buffer.
-          (setq multi-term-dedicated-buffer (multi-term-get-buffer current-prefix-arg t))
+          (multi-term-dedicated-set-frame-buffer (multi-term-get-buffer current-prefix-arg t))
           (set-buffer (multi-term-dedicated-get-buffer-name))
           ;; Get dedicate window.
           (multi-term-dedicated-get-window)
@@ -415,13 +415,13 @@ Will prompt you shell name when you type `C-u' before this command."
           (multi-term-dedicated-handle-other-window-advice multi-term-dedicated-skip-other-window-p)
           ;; Internal handle for `multi-term' buffer.
           (multi-term-internal))
-        (set-window-buffer multi-term-dedicated-window (get-buffer (multi-term-dedicated-get-buffer-name)))
-        (set-window-dedicated-p multi-term-dedicated-window t)
+        (set-window-buffer (multi-term-dedicated-get-frame-window) (get-buffer (multi-term-dedicated-get-buffer-name)))
+        (set-window-dedicated-p (multi-term-dedicated-get-frame-window) t)
         ;; Select window.
         (select-window
          (if multi-term-dedicated-select-after-open-p
              ;; Focus dedicated terminal window if option `multi-term-dedicated-select-after-open-p' is enable.
-             multi-term-dedicated-window
+             (multi-term-dedicated-get-frame-window)
            ;; Otherwise focus current window.
            current-window)))
     (message "`multi-term' dedicated window has exist.")))
@@ -442,7 +442,7 @@ Will prompt you shell name when you type `C-u' before this command."
               (ecb-deactivate)
               (ecb-activate))
           ;; Otherwise delete dedicated window.
-          (delete-window multi-term-dedicated-window)
+          (delete-window (multi-term-dedicated-get-frame-window))
           (if (multi-term-window-exist-p current-window)
               (select-window current-window))))
     (message "`multi-term' window is not exist.")))
@@ -466,7 +466,7 @@ Will prompt you shell name when you type `C-u' before this command."
   "Select the `multi-term' dedicated window."
   (interactive)
   (if (multi-term-dedicated-exist-p)
-      (select-window multi-term-dedicated-window)
+      (select-window (multi-term-dedicated-get-frame-window))
     (message "`multi-term' window is not exist.")))
 
 (defun term-send-backward-kill-word ()
@@ -524,7 +524,7 @@ If option DEDICATED-WINDOW is `non-nil' will create dedicated `multi-term' windo
           index                         ;setup new term index
           term-name)                    ;term name
       (if dedicated-window
-          (setq term-name multi-term-dedicated-buffer-name)
+          (setq term-name (multi-term-dedicated-get-term-name))
         ;; Compute index.
         (setq term-list-length (length (multi-term-list)))
         (setq index (if term-list-length (1+ term-list-length) 1))
@@ -662,19 +662,42 @@ If `window' is nil, get current window."
 
 (defun multi-term-dedicated-get-window ()
   "Get `multi-term' dedicated window."
-  (setq multi-term-dedicated-window
+  (multi-term-dedicated-set-frame-window
         (split-window
          (selected-window)
          (- (multi-term-current-window-take-height) multi-term-dedicated-window-height))))
 
+(defun multi-term-dedicated-get-term-name ()
+  "Get the term name of `multi-term' dedicated window."
+  (let ((frame-id (substring (car (reverse (split-string (format "%s" (selected-frame))))) 2 -1)))
+    (if frame-id
+        (format "%s-f%s" multi-term-dedicated-buffer-name frame-id)
+      (format "%s" multi-term-dedicated-buffer-name))))
+
 (defun multi-term-dedicated-get-buffer-name ()
   "Get the buffer name of `multi-term' dedicated window."
-  (format "*%s*" multi-term-dedicated-buffer-name))
+      (format "*%s*" (multi-term-dedicated-get-term-name)))
+
+(defun multi-term-dedicated-get-frame-window ()
+  "Get the `multi-term' dedicated window for the frame."
+  (frame-parameter nil 'multi-term-dedicated-window))
+
+(defun multi-term-dedicated-get-frame-buffer ()
+  "Get the `multi-term' dedicated buffer for the frame."
+  (frame-parameter nil 'multi-term-dedicated-buffer))
+
+(defun multi-term-dedicated-set-frame-window (window)
+  "Set the `multi-term' dedicated window for the frame."
+  (modify-frame-parameters nil (list (cons 'multi-term-dedicated-window window))))
+
+(defun multi-term-dedicated-set-frame-buffer (buffer)
+  "Set the `multi-term' dedicated buffer for the frame."
+  (modify-frame-parameters nil (list (cons 'multi-term-dedicated-buffer buffer))))
 
 (defun multi-term-dedicated-exist-p ()
   "Return `non-nil' if `multi-term' dedicated window exist."
-  (and (multi-term-buffer-exist-p multi-term-dedicated-buffer)
-       (multi-term-window-exist-p multi-term-dedicated-window)))
+  (and (multi-term-buffer-exist-p (multi-term-dedicated-get-frame-buffer))
+       (multi-term-window-exist-p (multi-term-dedicated-get-frame-window))))
 
 (defun multi-term-window-exist-p (window)
   "Return `non-nil' if WINDOW exist.
@@ -710,7 +733,7 @@ Otherwise return nil."
 (defadvice delete-other-windows (around multi-term-delete-other-window-advice activate)
   "This is advice to make `multi-term' avoid dedicated window deleted.
 Dedicated window can't deleted by command `delete-other-windows'."
-  (let ((multi-term-dedicated-active-p (multi-term-window-exist-p multi-term-dedicated-window)))
+  (let ((multi-term-dedicated-active-p (multi-term-window-exist-p (multi-term-dedicated-get-frame-window))))
     (if multi-term-dedicated-active-p
         (let ((current-window (selected-window)))
           (dolist (win (window-list))
@@ -744,7 +767,7 @@ And the example function that can induce the problem is `pop-to-buffer'.
 This advice will fix this problem when current frame just have one `non-dedicated' window."
   (when (and pop-up-windows                           ;`pop-up-windows' is enable
              (multi-term-window-dedicated-only-one-p) ;just have one `non-dedicated' window.
-             (multi-term-window-exist-p multi-term-dedicated-window)
+             (multi-term-window-exist-p (multi-term-dedicated-get-frame-window))
              (not (multi-term-dedicated-window-p))) ;not in `sr-speedbar' window
     (split-window-vertically)
     (windmove-down)))
@@ -757,8 +780,8 @@ window as a viewable sidebar.
 
 This advice can make `other-window' skip `multi-term' dedicated window."
   (let ((count (or (ad-get-arg 0) 1)))
-    (when (and (multi-term-window-exist-p multi-term-dedicated-window)
-               (eq multi-term-dedicated-window (selected-window)))
+    (when (and (multi-term-window-exist-p (multi-term-dedicated-get-frame-window))
+               (eq (multi-term-dedicated-get-frame-window) (selected-window)))
       (other-window count))))
 
 (provide 'multi-term)
